@@ -7,14 +7,18 @@ SSE 事件格式：
   data: [DONE]\n\n                     —— 流结束
 """
 import json
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from openai import APIStatusError
 
 from app.agent.llm import ChatMessage, get_llm_client
 from app.core.config import settings
 from app.schemas.chat import ChatRequest
+
+logger = logging.getLogger("app.chat")
 
 router = APIRouter(tags=["chat"])
 
@@ -25,6 +29,22 @@ DEFAULT_SYSTEM_PROMPT = (
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _format_error(exc: Exception) -> str:
+    """把 LLM 服务的报错提取成清晰、可诊断的中文信息。"""
+    if isinstance(exc, APIStatusError):
+        provider_msg = ""
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            provider_msg = (
+                body.get("message")
+                or (body.get("error") or {}).get("message")
+                or ""
+            )
+        detail = provider_msg or getattr(exc, "message", "") or str(exc)
+        return f"模型服务返回 {exc.status_code}：{detail}（模型={settings.qwen_model}）"
+    return str(exc)
 
 
 @router.post("/chat")
@@ -49,7 +69,8 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             async for delta in client.stream_chat(messages):
                 yield _sse({"delta": delta})
         except Exception as exc:  # noqa: BLE001 —— 把错误透传给前端展示
-            yield _sse({"error": str(exc)})
+            logger.exception("chat stream failed")
+            yield _sse({"error": _format_error(exc)})
         finally:
             yield "data: [DONE]\n\n"
 

@@ -23,11 +23,17 @@ def get_by_name(db: Session, name: str) -> Skill | None:
     return db.scalar(select(Skill).where(Skill.name == name))
 
 
+class NativeSkillForbidden(ValueError):
+    """用户侧不允许创建/修改 native 型 skill（仅限系统内置）。"""
+
+
 def create_from_skill_md(
     db: Session, text: str, source: str = "import"
 ) -> Skill:
     """解析一段 SKILL.md 文本并落库；同名则更新（版本+1）。"""
     fields = parse_skill_md(text)  # 可能抛 SkillParseError
+    if fields["kind"] == "native":
+        raise NativeSkillForbidden("native 型 skill 仅限系统内置，不能导入创建。")
     existing = get_by_name(db, fields["name"])
     if existing is not None:
         existing.description = fields["description"]
@@ -83,6 +89,8 @@ def update_from_skill_md(db: Session, skill_id: int, text: str) -> Skill | None:
         return None
 
     fields = parse_skill_md(text)  # 可能抛 SkillParseError
+    if fields["kind"] == "native":
+        raise NativeSkillForbidden("native 型 skill 仅限系统内置，不能修改为该类型。")
     other = get_by_name(db, fields["name"])
     if other is not None and other.id != skill_id:
         raise SkillNameConflict(f"已存在同名 skill：{fields['name']}")

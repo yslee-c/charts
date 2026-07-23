@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.schemas.skill import SkillActive, SkillCreate, SkillImport, SkillOut
 from app.services import skill_service as svc
-from app.services.skill_service import SkillNameConflict
+from app.services.skill_service import NativeSkillForbidden, SkillNameConflict
 from app.skills.parser import SkillParseError, render_skill_md
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -49,6 +49,8 @@ def import_skill(payload: SkillImport, db: Session = Depends(get_db)):
         return svc.create_from_skill_md(db, payload.content, source="import")
     except SkillParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NativeSkillForbidden as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/{skill_id}", response_model=SkillOut)
@@ -58,6 +60,8 @@ def update_skill(skill_id: int, payload: SkillImport, db: Session = Depends(get_
         skill = svc.update_from_skill_md(db, skill_id, payload.content)
     except SkillParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except NativeSkillForbidden as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SkillNameConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if skill is None:

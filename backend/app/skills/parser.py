@@ -54,8 +54,9 @@ def parse_skill_md(text: str) -> dict:
         raise SkillParseError("frontmatter 缺少 `description`（决定 agent 是否选用它）。")
 
     kind = str(meta.get("kind", "instruction")).strip() or "instruction"
-    if kind not in ("instruction", "http"):
-        raise SkillParseError(f"`kind` 仅支持 instruction / http：{kind!r}")
+    # native 型由系统内置（对应一个已注册的 Python handler），用户侧接口会拒绝创建
+    if kind not in ("instruction", "http", "native"):
+        raise SkillParseError(f"`kind` 仅支持 instruction / http / native：{kind!r}")
 
     parameters_schema = meta.get("parameters")
     if parameters_schema is not None and not isinstance(parameters_schema, dict):

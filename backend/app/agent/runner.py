@@ -9,9 +9,11 @@ import time
 
 import httpx
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.models.skill import Skill
 from app.models.skill_run import SkillRun
+from app.skills.native import get_handler
 
 _HTTP_TIMEOUT = 20.0
 _MAX_OUTPUT = 4000  # 回灌给模型的结果长度上限，控成本
@@ -27,6 +29,12 @@ class SkillRunner:
         try:
             if skill.kind == "http":
                 output = await self._run_http(skill, arguments)
+            elif skill.kind == "native":
+                handler = get_handler(skill.name)
+                if handler is None:
+                    raise RuntimeError(f"未注册的内置 skill：{skill.name}")
+                # handler 可能有阻塞 IO（如拉行情），放到线程池执行
+                output = await run_in_threadpool(handler, arguments)
             else:
                 # 渐进式披露：把完整指令交给模型
                 output = skill.skill_md or skill.description

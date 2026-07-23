@@ -1,21 +1,26 @@
-"""聊天路由：POST /api/chat，SSE 流式返回 Qwen 的回复。
+"""聊天路由：POST /api/chat，SSE 流式返回 agent 的回复。
 
-M1：无状态、不带 skill，纯粹跑通流式对话。
+M2：接入 agent 编排循环 —— 模型可自主调用已启用的 skill（渐进式披露 + tool calling）。
 SSE 事件格式：
-  data: {"delta": "文本增量"}\n\n     —— 逐段推送
-  data: {"error": "错误信息"}\n\n     —— 出错时
-  data: [DONE]\n\n                     —— 流结束
+  data: {"delta": "文本增量"}\n\n
+  data: {"tool_call": {"skill": "...", "arguments": {...}}}\n\n   —— 调用某 skill
+  data: {"tool_result": {"skill": "...", "ok": true}}\n\n         —— 该 skill 执行完毕
+  data: {"error": "错误信息"}\n\n
+  data: [DONE]\n\n
 """
 import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import APIStatusError
+from sqlalchemy.orm import Session
 
-from app.agent.llm import ChatMessage, get_llm_client
+from app.agent.llm.base import ChatMessage
+from app.agent.orchestrator import run_chat
 from app.core.config import settings
+from app.core.db import get_db
 from app.schemas.chat import ChatRequest
 
 logger = logging.getLogger("app.chat")
@@ -24,6 +29,7 @@ router = APIRouter(tags=["chat"])
 
 DEFAULT_SYSTEM_PROMPT = (
     "你是 Skills 中心的 AI 助手。用简洁、友好的中文回答用户的问题。"
+    "当某个 skill 能更好地完成用户的需求时，主动调用它。"
 )
 
 
@@ -48,7 +54,7 @@ def _format_error(exc: Exception) -> str:
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest) -> StreamingResponse:
+async def chat(req: ChatRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     if not settings.dashscope_api_key:
         raise HTTPException(
             status_code=503,
@@ -58,16 +64,11 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     messages: list[ChatMessage] = [
         {"role": m.role, "content": m.content} for m in req.messages
     ]
-    # 若前端未提供 system 消息，则补一个默认人设
-    if messages[0]["role"] != "system":
-        messages.insert(0, {"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
-
-    client = get_llm_client()
 
     async def event_stream() -> AsyncIterator[str]:
         try:
-            async for delta in client.stream_chat(messages):
-                yield _sse({"delta": delta})
+            async for event in run_chat(db, messages, DEFAULT_SYSTEM_PROMPT):
+                yield _sse(event)
         except Exception as exc:  # noqa: BLE001 —— 把错误透传给前端展示
             logger.exception("chat stream failed")
             yield _sse({"error": _format_error(exc)})

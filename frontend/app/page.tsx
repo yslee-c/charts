@@ -56,8 +56,9 @@ export default async function Home() {
         </div>
       </div>
 
-      <p style={{ marginTop: 32 }}>
+      <p style={{ marginTop: 32, display: "flex", gap: 20 }}>
         <Link href="/chat">进入聊天 →</Link>
+        <Link href="/skills">管理 Skill →</Link>
       </p>
     </main>
   );

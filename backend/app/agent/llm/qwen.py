@@ -6,7 +6,14 @@ from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI
 
-from app.agent.llm.base import ChatMessage, LLMClient
+from app.agent.llm.base import (
+    ChatMessage,
+    ContentDelta,
+    LLMClient,
+    StreamEnd,
+    StreamEvent,
+    ToolCallDelta,
+)
 from app.core.config import settings
 
 
@@ -18,17 +25,36 @@ class QwenClient(LLMClient):
         )
         self._model = settings.qwen_model
 
-    async def stream_chat(
-        self, messages: list[ChatMessage]
-    ) -> AsyncIterator[str]:
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,  # type: ignore[arg-type]
-            stream=True,
-        )
+    async def stream(
+        self, messages: list[ChatMessage], tools: list[dict] | None = None
+    ) -> AsyncIterator[StreamEvent]:
+        kwargs: dict = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:  # 空列表不传，避免部分服务端报错
+            kwargs["tools"] = tools
+
+        stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
         async for chunk in stream:
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+            choice = chunk.choices[0]
+            delta = choice.delta
+
+            if delta and delta.content:
+                yield ContentDelta(text=delta.content)
+
+            if delta and delta.tool_calls:
+                for tc in delta.tool_calls:
+                    fn = tc.function
+                    yield ToolCallDelta(
+                        index=tc.index,
+                        id=tc.id,
+                        name=fn.name if fn else None,
+                        arguments=fn.arguments if fn else None,
+                    )
+
+            if choice.finish_reason:
+                yield StreamEnd(finish_reason=choice.finish_reason)

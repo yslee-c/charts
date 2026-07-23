@@ -20,6 +20,20 @@ uvicorn app.main:app --reload --port 8000
 - 健康检查：http://localhost:8000/api/health
 - 交互式 API 文档：http://localhost:8000/docs
 
+> 首次启动会自动建表并植入内置 skill（`wenyanwen`、`emoji-tldr` 默认启用，
+> `ip-geo` 为 http 模板、默认停用）。配好 `DASHSCOPE_API_KEY` 后即可在
+> http://localhost:8000/docs 或前端聊天页体验 agent 自主调用 skill。
+
+## 主要接口
+
+| 方法 & 路径 | 说明 |
+| --- | --- |
+| `POST /api/chat` | SSE 流式对话；agent 按需调用已启用 skill（tool calling + 渐进式披露） |
+| `GET /api/skills?active_only=` | 列出 skill |
+| `POST /api/skills/import` | 导入一段 SKILL.md（Claude Skills 规范），同名则更新并 +1 版本 |
+| `PATCH /api/skills/{id}/active` | 启用 / 停用（即“订阅”开关） |
+| `DELETE /api/skills/{id}` | 删除 skill |
+
 ## 目录
 
 ```

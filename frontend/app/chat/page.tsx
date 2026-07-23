@@ -1,7 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { useRef, useState } from "react";
+import { ArrowUp, Sparkles, Wrench } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -11,27 +13,41 @@ interface Message {
   content: string;
 }
 
+const SUGGESTIONS = [
+  "把「今天天气真好」改写成文言文",
+  "用 emoji 总结一下什么是 REST API",
+  "你能帮我做什么？",
+];
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     });
   }
 
-  async function send() {
-    const text = input.trim();
+  // 自动调整输入框高度
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+  }, [input]);
+
+  async function send(text: string) {
+    text = text.trim();
     if (!text || streaming) return;
 
     setError(null);
     setInput("");
 
-    // 发给后端的历史：只保留 user/assistant 文本消息（剔除工具活动行）
     const payload = messages
       .filter((m) => m.role !== "activity" && m.content)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -57,13 +73,11 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let buffer = "";
 
-      // 逐块读取 SSE，事件以空行分隔
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
         const events = buffer.split("\n\n");
         buffer = events.pop() ?? "";
 
@@ -83,14 +97,12 @@ export default function ChatPage() {
             if (obj.error) {
               setError(obj.error);
             } else if (obj.tool_call) {
-              // 工具调用：新增一行活动提示（后续 delta 会开一个新的助手气泡）
               setMessages((prev) => [
                 ...prev,
-                { role: "activity", content: `🛠 调用 skill：${obj.tool_call!.skill}` },
+                { role: "activity", content: `调用 skill：${obj.tool_call!.skill}` },
               ]);
               scrollToBottom();
             } else if (obj.tool_result) {
-              // 给最近一条匹配的活动行补上结果标记
               setMessages((prev) => {
                 const next = [...prev];
                 for (let i = next.length - 1; i >= 0; i--) {
@@ -100,8 +112,7 @@ export default function ChatPage() {
                   ) {
                     next[i] = {
                       ...next[i],
-                      content:
-                        next[i].content + (obj.tool_result!.ok ? " ✅" : " ❌"),
+                      content: next[i].content + (obj.tool_result!.ok ? " · 完成" : " · 失败"),
                     };
                     break;
                   }
@@ -109,7 +120,6 @@ export default function ChatPage() {
                 return next;
               });
             } else if (obj.delta) {
-              // 追加到最后一个助手气泡；若最后一条不是助手气泡则新开一个
               const piece = obj.delta;
               setMessages((prev) => {
                 const next = [...prev];
@@ -124,7 +134,7 @@ export default function ChatPage() {
               scrollToBottom();
             }
           } catch {
-            // 忽略无法解析的分片
+            /* 忽略无法解析的分片 */
           }
         }
       }
@@ -139,130 +149,125 @@ export default function ChatPage() {
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      send(input);
     }
   }
 
-  return (
-    <main
-      style={{
-        maxWidth: 760,
-        margin: "0 auto",
-        padding: "24px",
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div style={{ marginBottom: 12 }}>
-        <Link href="/">← 返回</Link>
-      </div>
-      <h1 style={{ fontSize: 22, margin: "0 0 12px" }}>聊天窗口</h1>
+  const empty = messages.length === 0;
 
-      <div
-        ref={scrollRef}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: 16,
-          background: "var(--panel)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        {messages.length === 0 && (
-          <div style={{ color: "var(--muted)", textAlign: "center", marginTop: 40 }}>
-            开始对话吧 —— agent 会按需调用已启用的 skill。
-          </div>
-        )}
-        {messages.map((m, i) =>
-          m.role === "activity" ? (
-            <div
-              key={i}
-              style={{
-                alignSelf: "center",
-                fontSize: 12,
-                color: "var(--muted)",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 999,
-                padding: "3px 12px",
-              }}
-            >
-              {m.content}
+  return (
+    <div className="flex h-full flex-col">
+      {/* 顶栏 */}
+      <header className="flex h-14 items-center border-b border-border px-6">
+        <h1 className="text-sm font-medium">聊天</h1>
+      </header>
+
+      {/* 消息区 */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-6 py-6">
+          {empty ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                <Sparkles className="h-6 w-6" />
+              </span>
+              <h2 className="mt-4 text-xl font-semibold">有什么可以帮你？</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                agent 会根据你的需求，自主决定是否调用已启用的 skill。
+              </p>
+              <div className="mt-6 flex flex-col gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <div
-              key={i}
-              style={{
-                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                maxWidth: "82%",
-                padding: "10px 14px",
-                borderRadius: 12,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                background: m.role === "user" ? "var(--accent)" : "var(--bg)",
-                color: m.role === "user" ? "#fff" : "var(--text)",
-                border: m.role === "user" ? "none" : "1px solid var(--border)",
-              }}
-            >
-              {m.content}
-            </div>
-          )
-        )}
-        {streaming &&
-          messages[messages.length - 1]?.role !== "assistant" && (
-            <div style={{ alignSelf: "flex-start", color: "var(--muted)", fontSize: 13 }}>
-              思考中…
+            <div className="flex flex-col gap-4">
+              {messages.map((m, i) =>
+                m.role === "activity" ? (
+                  <div key={i} className="flex justify-center">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground animate-fade-in">
+                      <Wrench className="h-3 w-3" />
+                      {m.content}
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    key={i}
+                    className={cn(
+                      "flex animate-fade-in",
+                      m.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                        m.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "border border-border bg-card text-card-foreground"
+                      )}
+                    >
+                      {m.content}
+                    </div>
+                  </div>
+                )
+              )}
+              {streaming &&
+                messages[messages.length - 1]?.role !== "assistant" && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-1 rounded-2xl border border-border bg-card px-4 py-3">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-pulse-soft"
+                          style={{ animationDelay: `${i * 0.2}s` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
             </div>
           )}
-      </div>
-
-      {error && (
-        <div style={{ color: "var(--err)", fontSize: 13, marginTop: 8 }}>
-          出错：{error}
         </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-          rows={2}
-          style={{
-            flex: 1,
-            resize: "none",
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "var(--panel)",
-            color: "var(--text)",
-            fontFamily: "inherit",
-            fontSize: 14,
-          }}
-        />
-        <button
-          onClick={send}
-          disabled={streaming || !input.trim()}
-          style={{
-            padding: "0 20px",
-            borderRadius: 10,
-            border: "none",
-            background: "var(--accent)",
-            color: "#fff",
-            fontSize: 14,
-            cursor: streaming || !input.trim() ? "not-allowed" : "pointer",
-            opacity: streaming || !input.trim() ? 0.5 : 1,
-          }}
-        >
-          {streaming ? "…" : "发送"}
-        </button>
       </div>
-    </main>
+
+      {/* 输入区 */}
+      <div className="border-t border-border px-6 py-4">
+        <div className="mx-auto max-w-3xl">
+          {error && (
+            <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              出错：{error}
+            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-2 shadow-sm focus-within:ring-2 focus-within:ring-ring">
+            <textarea
+              ref={taRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={1}
+              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+              className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              onClick={() => send(input)}
+              disabled={streaming || !input.trim()}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+              aria-label="发送"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            由通义千问驱动 · agent 可自主调用 skill
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,14 @@
 "use client";
 
-import Link from "next/link";
+import { Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -27,16 +34,14 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
-  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(
-    null
-  );
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   async function load() {
     try {
       const res = await fetch(`${API_BASE}/api/skills`, { cache: "no-store" });
       setSkills(await res.json());
     } catch {
-      setImportMsg({ ok: false, text: "无法连接后端" });
+      setMsg({ ok: false, text: "无法连接后端" });
     } finally {
       setLoading(false);
     }
@@ -47,6 +52,9 @@ export default function SkillsPage() {
   }, []);
 
   async function toggle(s: Skill) {
+    setSkills((prev) =>
+      prev.map((x) => (x.id === s.id ? { ...x, is_active: !x.is_active } : x))
+    );
     await fetch(`${API_BASE}/api/skills/${s.id}/active`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -62,7 +70,7 @@ export default function SkillsPage() {
   }
 
   async function doImport() {
-    setImportMsg(null);
+    setMsg(null);
     const res = await fetch(`${API_BASE}/api/skills/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -70,137 +78,113 @@ export default function SkillsPage() {
     });
     if (res.ok) {
       const s = await res.json();
-      setImportMsg({ ok: true, text: `已导入：${s.name}（v${s.version}）` });
+      setMsg({ ok: true, text: `已导入：${s.name}（v${s.version}）` });
       setDraft("");
       load();
     } else {
       const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-      setImportMsg({ ok: false, text: err.detail });
+      setMsg({ ok: false, text: err.detail });
     }
   }
 
-  return (
-    <main style={{ maxWidth: 820, margin: "0 auto", padding: "32px 24px" }}>
-      <div style={{ marginBottom: 12 }}>
-        <Link href="/">← 返回</Link>
-        {"　"}
-        <Link href="/chat">进入聊天 →</Link>
-      </div>
-      <h1 style={{ fontSize: 24 }}>Skill 管理</h1>
-      <p style={{ color: "var(--muted)", marginTop: 0 }}>
-        启用的 skill 会作为工具提供给 agent；对话时由 agent 自主决定是否调用。
-      </p>
+  const activeCount = skills.filter((s) => s.is_active).length;
 
-      {/* 列表 */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
-        {loading && <div style={{ color: "var(--muted)" }}>加载中…</div>}
-        {!loading && skills.length === 0 && (
-          <div style={{ color: "var(--muted)" }}>还没有 skill，用下面的表单导入一个。</div>
-        )}
-        {skills.map((s) => (
-          <div
-            key={s.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              background: "var(--panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: "12px 16px",
-            }}
-          >
-            <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={s.is_active}
-                onChange={() => toggle(s)}
-                style={{ width: 18, height: 18 }}
-              />
-            </label>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <strong>{s.name}</strong>
-                <Badge>{s.kind}</Badge>
-                <Badge>{s.source}</Badge>
-                <span style={{ color: "var(--muted)", fontSize: 12 }}>v{s.version}</span>
-              </div>
-              <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
-                {s.description}
-              </div>
-            </div>
-            <button onClick={() => remove(s)} style={ghostBtn}>
-              删除
-            </button>
+  return (
+    <div className="h-full overflow-y-auto">
+      <header className="flex h-14 items-center border-b border-border px-6">
+        <h1 className="text-sm font-medium">Skill 管理</h1>
+      </header>
+
+      <div className="mx-auto max-w-3xl px-6 py-8">
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Skill 库</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              启用的 skill 会作为工具提供给 agent；对话时由 agent 自主决定是否调用。
+            </p>
           </div>
-        ))}
-      </div>
+          <Badge variant="outline">{activeCount} 个已启用</Badge>
+        </div>
 
-      {/* 导入 */}
-      <h2 style={{ fontSize: 18, marginTop: 32 }}>导入 skill（Claude Skills 规范）</h2>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder={SAMPLE}
-        rows={10}
-        style={{
-          width: "100%",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: 13,
-          padding: 12,
-          borderRadius: 10,
-          border: "1px solid var(--border)",
-          background: "var(--panel)",
-          color: "var(--text)",
-          resize: "vertical",
-        }}
-      />
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
-        <button onClick={doImport} disabled={!draft.trim()} style={primaryBtn}>
-          导入
-        </button>
-        {importMsg && (
-          <span style={{ color: importMsg.ok ? "var(--ok)" : "var(--err)", fontSize: 13 }}>
-            {importMsg.text}
-          </span>
-        )}
+        {/* 列表 */}
+        <div className="mt-6 flex flex-col gap-2.5">
+          {loading &&
+            [0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-[68px] w-full rounded-lg" />
+            ))}
+          {!loading && skills.length === 0 && (
+            <Card className="p-8 text-center text-sm text-muted-foreground">
+              还没有 skill，用下面的表单导入一个。
+            </Card>
+          )}
+          {skills.map((s) => (
+            <Card
+              key={s.id}
+              className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:border-border/80"
+            >
+              <Switch
+                checked={s.is_active}
+                onCheckedChange={() => toggle(s)}
+                aria-label={`启用 ${s.name}`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{s.name}</span>
+                  <Badge variant={s.kind === "http" ? "secondary" : "outline"}>
+                    {s.kind}
+                  </Badge>
+                  {s.source === "builtin" && (
+                    <Badge variant="outline">内置</Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground">v{s.version}</span>
+                </div>
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                  {s.description}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => remove(s)}
+                aria-label="删除"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 />
+              </Button>
+            </Card>
+          ))}
+        </div>
+
+        {/* 导入 */}
+        <div className="mt-10">
+          <h3 className="text-lg font-semibold">导入 skill</h3>
+          <p className="mb-3 mt-1 text-sm text-muted-foreground">
+            粘贴一段符合 Claude Skills 规范的 SKILL.md（同名会更新并升版本）。
+          </p>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={SAMPLE}
+            rows={10}
+            className="font-mono text-xs"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <Button onClick={doImport} disabled={!draft.trim()} className="gap-2">
+              <Upload className="h-4 w-4" />
+              导入
+            </Button>
+            {msg && (
+              <span
+                className={
+                  msg.ok ? "text-sm text-success" : "text-sm text-destructive"
+                }
+              >
+                {msg.text}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </main>
+    </div>
   );
 }
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        color: "var(--muted)",
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        padding: "1px 6px",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-const primaryBtn: React.CSSProperties = {
-  padding: "8px 18px",
-  borderRadius: 8,
-  border: "none",
-  background: "var(--accent)",
-  color: "#fff",
-  fontSize: 14,
-  cursor: "pointer",
-};
-
-const ghostBtn: React.CSSProperties = {
-  padding: "6px 12px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--muted)",
-  fontSize: 13,
-  cursor: "pointer",
-};

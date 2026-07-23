@@ -6,7 +6,7 @@ M0：仅提供健康检查，打通前后端与数据库连接。
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health
+from app.api import chat, health
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -20,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
 
 
 @app.get("/")

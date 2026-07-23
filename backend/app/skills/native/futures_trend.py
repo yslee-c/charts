@@ -283,6 +283,9 @@ def _bars_from_df(df, n: int) -> list[Bar]:
     if missing:
         raise RuntimeError(f"无法识别行情数据列，缺 {missing}；实际列：{cols}")
 
+    # 先按日期升序排，再取最近 n 根 —— 防止数据源为降序时 tail() 取到最老数据
+    if mapping["date"] is not None:
+        df = df.sort_values(by=mapping["date"])
     tail = df.tail(n)
     bars: list[Bar] = []
     for _, row in tail.iterrows():

@@ -7,7 +7,9 @@
   123（自上升趋势见顶）：① 跌破上升趋势线 ② 反弹未创新高 ③ 跌破前期回调低点
   2B：创新高后无法站稳、回落到前高之下（顶部假突破）；底部镜像。
 """
-from typing import Callable
+import json
+
+from app.skills.native.symbols import resolve_symbol
 
 Bar = dict  # {"date","open","high","low","close"}
 
@@ -100,8 +102,22 @@ def analyze_123_2b(bars: list[Bar], window: int = 3) -> dict:
         "last_close": last,
         "pivot_highs": highs[-2:],
         "pivot_lows": lows[-2:],
-        "bearish": {"conditions": bear, "count": len(bear), "twoB": bear_2b},
-        "bullish": {"conditions": bull, "count": len(bull), "twoB": bull_2b},
+        "bearish": {
+            "conditions": bear,
+            "count": len(bear),
+            "twoB": bear_2b,
+            "c1": bear_c1,
+            "c2": bear_c2,
+            "c3": bear_c3,
+        },
+        "bullish": {
+            "conditions": bull,
+            "count": len(bull),
+            "twoB": bull_2b,
+            "c1": bull_c1,
+            "c2": bull_c2,
+            "c3": bull_c3,
+        },
     }
 
 
@@ -176,6 +192,58 @@ def _bars_from_df(df, n: int) -> list[Bar]:
     return bars
 
 
+_GAP_THRESHOLD = 0.08  # 相邻两日开盘 vs 前收盘跳空超过 8% 视为异常/换月
+
+
+def clean_bars(bars: list[Bar]) -> tuple[list[Bar], list[str]]:
+    """清洗：按日期排序、按日期去重、剔除非法 OHLC、标注大跳空。
+
+    返回 (clean_bars, notes)。纯函数，可单测。
+    """
+    notes: list[str] = []
+
+    # 排序 + 去重（同日保留最后一条）
+    by_date: dict[str, Bar] = {}
+    for b in sorted(bars, key=lambda x: str(x.get("date", ""))):
+        by_date[str(b.get("date", ""))] = b
+    ordered = [by_date[d] for d in sorted(by_date)]
+
+    # 剔除非法：非正、NaN、high<low
+    clean: list[Bar] = []
+    dropped = 0
+    for b in ordered:
+        try:
+            o, h, low, c = (
+                float(b["open"]),
+                float(b["high"]),
+                float(b["low"]),
+                float(b["close"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            dropped += 1
+            continue
+        vals = [o, h, low, c]
+        if any(v <= 0 or v != v for v in vals) or h < low:  # v!=v 判 NaN
+            dropped += 1
+            continue
+        clean.append(b)
+    if dropped:
+        notes.append(f"剔除 {dropped} 根异常/缺失数据")
+
+    # 跳空标注
+    gaps = 0
+    for prev, cur in zip(clean, clean[1:]):
+        pc = float(prev["close"])
+        if pc > 0 and abs(float(cur["open"]) - pc) / pc > _GAP_THRESHOLD:
+            gaps += 1
+    if gaps:
+        notes.append(
+            f"检测到 {gaps} 处较大跳空（>8%），主力连续合约可能含换月跳空，趋势线仅供参考"
+        )
+
+    return clean, notes
+
+
 def _fetch_daily(symbol: str, n: int) -> list[Bar]:
     """用 akshare 拉取期货日 K；主连（如 RB0）优先走 futures_main_sina。"""
     import akshare as ak  # 惰性导入：未安装时抛 ImportError，由 run() 捕获
@@ -196,12 +264,80 @@ def _fetch_daily(symbol: str, n: int) -> list[Bar]:
     return _bars_from_df(df, n)
 
 
+# ----------------------------- 结构化结果 -----------------------------
+
+_BEAR_LABEL = {"①": "跌破上升趋势线", "②": "反弹未创新高", "③": "跌破前期回调低点"}
+_BULL_LABEL = {"①": "突破下降趋势线", "②": "回落未创新低", "③": "突破前期反弹高点"}
+
+
+def _conditions(flags: dict, labels: dict) -> list[dict]:
+    return [
+        {"code": code, "label": labels[code], "met": flags[key]}
+        for code, key in (("①", "c1"), ("②", "c2"), ("③", "c3"))
+    ]
+
+
+def _build_result(
+    original: str, resolved: str, bars: list[Bar], analysis: dict, notes: list[str]
+) -> dict:
+    label = f"{original}（{resolved}）"
+    if not analysis["ok"]:
+        return {
+            "ok": False,
+            "symbol": original,
+            "resolved": resolved,
+            "summary": f"{label}：{analysis['reason']}",
+        }
+
+    def point(p):
+        i, price = p
+        return {"i": i, "date": bars[i]["date"], "price": round(price, 2)}
+
+    highs = [point(p) for p in analysis["pivot_highs"]]
+    lows = [point(p) for p in analysis["pivot_lows"]]
+    bear, bull = analysis["bearish"], analysis["bullish"]
+
+    return {
+        "ok": True,
+        "symbol": original,
+        "resolved": resolved,
+        "as_of": bars[-1]["date"],
+        "bars_count": len(bars),
+        "trend": analysis["trend"],
+        "last_close": round(analysis["last_close"], 2),
+        "pivots": {"highs": highs, "lows": lows},
+        "bearish": {
+            "count": bear["count"],
+            "twoB": bear["twoB"],
+            "conditions": _conditions(bear, _BEAR_LABEL),
+        },
+        "bullish": {
+            "count": bull["count"],
+            "twoB": bull["twoB"],
+            "conditions": _conditions(bull, _BULL_LABEL),
+        },
+        "stops": {
+            "short_ref": highs[-1]["price"] if highs else None,
+            "long_ref": lows[-1]["price"] if lows else None,
+        },
+        "notes": notes,
+        # 供前端画价格线（最近 60 根 [日期, 收盘]）
+        "series": [[b["date"], round(float(b["close"]), 2)] for b in bars[-60:]],
+        "summary": format_analysis(label, bars, analysis),
+    }
+
+
 # ----------------------------- handler 入口 -----------------------------
 
 def run(arguments: dict) -> str:
-    symbol = str(arguments.get("symbol", "")).strip()
-    if not symbol:
-        return "请提供期货合约代码 symbol（如 RB0 螺纹钢主连、rb2410、V0）。"
+    """返回结构化 JSON 字符串：既供模型转述（summary），也供前端可视化。"""
+    raw = str(arguments.get("symbol", "")).strip()
+    if not raw:
+        return json.dumps(
+            {"ok": False, "summary": "请提供期货品种（如 沪锡 / SN0 / rb2410）。"},
+            ensure_ascii=False,
+        )
+    resolved = resolve_symbol(raw)
     try:
         n = int(arguments.get("bars", 120))
     except (TypeError, ValueError):
@@ -209,17 +345,34 @@ def run(arguments: dict) -> str:
     n = max(30, min(n, 500))
 
     try:
-        bars = _fetch_daily(symbol, n)
+        bars = _fetch_daily(resolved, n)
     except ImportError:
-        return "服务器未安装 akshare，无法拉取行情。请先 `pip install akshare`。"
+        return json.dumps(
+            {"ok": False, "summary": "服务器未安装 akshare，请先 `pip install akshare`。"},
+            ensure_ascii=False,
+        )
     except Exception as exc:  # noqa: BLE001
-        return f"拉取 {symbol} 行情失败：{exc}。请确认合约代码正确、且服务器能访问新浪财经。"
+        return json.dumps(
+            {
+                "ok": False,
+                "symbol": raw,
+                "resolved": resolved,
+                "summary": f"拉取 {raw}（{resolved}）行情失败：{exc}。请确认品种/代码正确、服务器能访问新浪财经。",
+            },
+            ensure_ascii=False,
+        )
 
+    bars, notes = clean_bars(bars)
     if len(bars) < 30:
-        return f"{symbol} 数据不足（{len(bars)} 根），无法可靠判别。"
+        return json.dumps(
+            {
+                "ok": False,
+                "symbol": raw,
+                "resolved": resolved,
+                "summary": f"{raw}（{resolved}）有效数据不足（{len(bars)} 根），无法可靠判别。",
+            },
+            ensure_ascii=False,
+        )
 
     analysis = analyze_123_2b(bars, window=3)
-    return format_analysis(symbol, bars, analysis)
-
-
-run: Callable[[dict], str]
+    return json.dumps(_build_result(raw, resolved, bars, analysis, notes), ensure_ascii=False)

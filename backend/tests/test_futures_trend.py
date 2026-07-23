@@ -1,5 +1,9 @@
-"""期货 123/2B 分析（纯逻辑）+ native 守卫测试。"""
-from app.skills.native.futures_trend import analyze_123_2b, format_analysis
+"""期货 123/2B 分析（纯逻辑）+ 清洗/映射/结构化输出 + native 守卫测试。"""
+import json
+
+from app.skills.native import futures_trend as ft
+from app.skills.native.futures_trend import analyze_123_2b, clean_bars, format_analysis
+from app.skills.native.symbols import resolve_symbol
 from app.skills.parser import parse_skill_md
 
 
@@ -82,5 +86,70 @@ def test_user_cannot_create_native(client):
 
 
 def test_native_builtin_seeded(client):
-    ft = [s for s in client.get("/api/skills").json() if s["name"] == "futures-trend"]
-    assert ft and ft[0]["kind"] == "native" and ft[0]["is_active"] is True
+    fts = [s for s in client.get("/api/skills").json() if s["name"] == "futures-trend"]
+    assert fts and fts[0]["kind"] == "native" and fts[0]["is_active"] is True
+
+
+def test_resolve_symbol():
+    assert resolve_symbol("沪锡") == "SN0"
+    assert resolve_symbol("螺纹钢") == "RB0"
+    assert resolve_symbol("沪锡主连") == "SN0"
+    assert resolve_symbol("rb2410") == "RB2410"   # 代码原样大写
+    assert resolve_symbol("SN0") == "SN0"
+
+
+def test_clean_bars_sort_dedup_drop_gap():
+    raw = [
+        {"date": "2024-01-03", "open": 12, "high": 13, "low": 11, "close": 12},
+        {"date": "2024-01-01", "open": 10, "high": 11, "low": 9, "close": 10},
+        {"date": "2024-01-02", "open": 10.5, "high": 12, "low": 10, "close": 11},
+        {"date": "2024-01-02", "open": 10.6, "high": 12, "low": 10, "close": 11.2},  # 同日重复
+        {"date": "2024-01-04", "open": -1, "high": 0, "low": 0, "close": 0},  # 非法
+        {"date": "2024-01-05", "open": 30, "high": 31, "low": 29, "close": 30},  # 相对前收 ~11 跳空
+    ]
+    clean, notes = clean_bars(raw)
+    dates = [b["date"] for b in clean]
+    assert dates == ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-05"]  # 排序+去重+剔非法
+    assert clean[1]["close"] == 11.2  # 去重保留后一条
+    assert any("异常" in n for n in notes)
+    assert any("跳空" in n for n in notes)
+
+
+def _sine_uptrend(n=48, trend=0.6, amp=8.0, period=12):
+    """带上升趋势的正弦波，摆动明显、适合 window=3 识别枢轴。"""
+    import math
+
+    bars = []
+    for i in range(n):
+        c = 100 + trend * i + amp * math.sin(2 * math.pi * i / period)
+        bars.append(
+            {
+                "date": f"2024-{i // 20 + 1:02d}-{i % 20 + 1:02d}",
+                "open": c,
+                "high": c + 1,
+                "low": c - 1,
+                "close": c,
+            }
+        )
+    return bars
+
+
+def test_run_returns_structured_json(monkeypatch):
+    """把 _fetch_daily 换成合成数据，验证 run() 输出的结构化 JSON。"""
+    monkeypatch.setattr(ft, "_fetch_daily", lambda symbol, n: _sine_uptrend())
+    out = ft.run({"symbol": "沪锡"})
+    data = json.loads(out)
+    assert data["ok"] is True
+    assert data["symbol"] == "沪锡" and data["resolved"] == "SN0"
+    assert data["trend"] == "up"
+    assert set(data["pivots"].keys()) == {"highs", "lows"}
+    assert len(data["bearish"]["conditions"]) == 3  # 三条都带 met 布尔
+    assert all("met" in c and "label" in c for c in data["bearish"]["conditions"])
+    assert data["stops"]["short_ref"] is not None
+    assert isinstance(data["series"], list) and len(data["series"]) > 0
+    assert "summary" in data
+
+
+def test_run_missing_symbol():
+    data = json.loads(ft.run({"symbol": ""}))
+    assert data["ok"] is False and "请提供" in data["summary"]

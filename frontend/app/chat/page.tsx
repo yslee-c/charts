@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowUp, Sparkles, Square, Wrench } from "lucide-react";
+import { ArrowUp, ChevronDown, Sparkles, Square, Wrench } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ConversationList } from "@/components/conversation-list";
 import { CopyButton } from "@/components/copy-button";
 import { Markdown } from "@/components/markdown";
+import { ToolOutput } from "@/components/tool-output";
 import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -14,6 +15,8 @@ type Role = "user" | "assistant" | "activity";
 interface Message {
   role: Role;
   content: string;
+  skill?: string;
+  output?: string; // 工具调用的原始输出（活动消息，仅本次会话可展开）
 }
 
 const SUGGESTIONS = [
@@ -29,6 +32,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -77,6 +81,14 @@ export default function ChatPage() {
 
   function stop() {
     abortRef.current?.abort();
+  }
+
+  function toggleExpand(i: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
   }
 
   async function send(text: string) {
@@ -129,7 +141,7 @@ export default function ChatPage() {
               error?: string;
               conversation?: { id: number; title: string; is_new: boolean };
               tool_call?: { skill: string };
-              tool_result?: { skill: string; ok: boolean };
+              tool_result?: { skill: string; ok: boolean; output?: string };
             };
             if (obj.conversation) {
               setCid(obj.conversation.id);
@@ -137,23 +149,22 @@ export default function ChatPage() {
             } else if (obj.error) {
               setError(obj.error);
             } else if (obj.tool_call) {
+              const skill = obj.tool_call.skill;
               setMessages((prev) => [
                 ...prev,
-                { role: "activity", content: `调用 skill：${obj.tool_call!.skill}` },
+                { role: "activity", content: `调用 skill：${skill}`, skill },
               ]);
               scrollToBottom();
             } else if (obj.tool_result) {
+              const tr = obj.tool_result;
               setMessages((prev) => {
                 const next = [...prev];
                 for (let i = next.length - 1; i >= 0; i--) {
-                  if (
-                    next[i].role === "activity" &&
-                    next[i].content.includes(obj.tool_result!.skill)
-                  ) {
+                  if (next[i].role === "activity" && next[i].skill === tr.skill) {
                     next[i] = {
                       ...next[i],
-                      content:
-                        next[i].content + (obj.tool_result!.ok ? " · 完成" : " · 失败"),
+                      content: next[i].content + (tr.ok ? " · 完成" : " · 失败"),
+                      output: tr.output,
                     };
                     break;
                   }
@@ -241,11 +252,31 @@ export default function ChatPage() {
               <div className="flex flex-col gap-4">
                 {messages.map((m, i) =>
                   m.role === "activity" ? (
-                    <div key={i} className="flex justify-center">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground animate-fade-in">
+                    <div key={i} className="flex flex-col items-center gap-1.5">
+                      <button
+                        onClick={() => m.output && toggleExpand(i)}
+                        disabled={!m.output}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground animate-fade-in",
+                          m.output && "hover:text-foreground"
+                        )}
+                      >
                         <Wrench className="h-3 w-3" />
                         {m.content}
-                      </span>
+                        {m.output && (
+                          <ChevronDown
+                            className={cn(
+                              "h-3 w-3 transition-transform",
+                              expanded.has(i) && "rotate-180"
+                            )}
+                          />
+                        )}
+                      </button>
+                      {m.output && expanded.has(i) && (
+                        <div className="w-full max-w-xl">
+                          <ToolOutput output={m.output} />
+                        </div>
+                      )}
                     </div>
                   ) : m.role === "user" ? (
                     <div key={i} className="flex animate-fade-in justify-end">

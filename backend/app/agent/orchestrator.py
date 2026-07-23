@@ -95,7 +95,8 @@ async def run_chat(
                 result = await runner.run(skill, args)
                 ok = True
 
-            yield {"tool_result": {"skill": name, "ok": ok}}
+            # output 一并推给前端，用于「展开查看 skill 原始输出/可视化」
+            yield {"tool_result": {"skill": name, "ok": ok, "output": result}}
             convo.append(
                 {"role": "tool", "tool_call_id": tc["id"], "content": result}
             )

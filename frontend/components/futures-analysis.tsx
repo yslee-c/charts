@@ -20,9 +20,11 @@ export interface FuturesData {
   trend?: "up" | "down" | "range";
   last_close?: number;
   bars_count?: number;
+  atr?: number;
+  confidence?: { bearish: number; bullish: number };
   pivots?: { highs: Pivot[]; lows: Pivot[] };
-  bearish?: { count: number; twoB: boolean; conditions: Cond[] };
-  bullish?: { count: number; twoB: boolean; conditions: Cond[] };
+  bearish?: { count: number; twoB: boolean; ordered?: boolean; confidence?: number; conditions: Cond[] };
+  bullish?: { count: number; twoB: boolean; ordered?: boolean; confidence?: number; conditions: Cond[] };
   stops?: { short_ref: number | null; long_ref: number | null };
   notes?: string[];
   series?: [string, number][];
@@ -65,12 +67,16 @@ export function FuturesAnalysis({ data }: { data: FuturesData }) {
           title="看跌 123"
           count={data.bearish?.count ?? 0}
           twoB={data.bearish?.twoB ?? false}
+          ordered={data.bearish?.ordered ?? false}
+          confidence={data.bearish?.confidence ?? data.confidence?.bearish ?? 0}
           conds={data.bearish?.conditions ?? []}
         />
         <ConditionList
           title="看涨 123"
           count={data.bullish?.count ?? 0}
           twoB={data.bullish?.twoB ?? false}
+          ordered={data.bullish?.ordered ?? false}
+          confidence={data.bullish?.confidence ?? data.confidence?.bullish ?? 0}
           conds={data.bullish?.conditions ?? []}
         />
       </div>
@@ -98,19 +104,27 @@ function ConditionList({
   title,
   count,
   twoB,
+  ordered,
+  confidence,
   conds,
 }: {
   title: string;
   count: number;
   twoB: boolean;
+  ordered: boolean;
+  confidence: number;
   conds: Cond[];
 }) {
   return (
     <div className="rounded-md border border-border p-2.5">
-      <div className="mb-1.5 flex items-center gap-2">
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
         <span className="text-sm font-medium">{title}</span>
         <Badge variant={count >= 2 ? "success" : "outline"}>{count}/3</Badge>
+        {ordered && <Badge variant="outline">时序</Badge>}
         {twoB && <Badge variant="success">2B</Badge>}
+        <Badge variant={confidence >= 50 ? "success" : "outline"}>
+          置信 {confidence}
+        </Badge>
       </div>
       <ul className="space-y-1">
         {conds.map((c) => (

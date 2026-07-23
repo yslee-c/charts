@@ -1,8 +1,10 @@
 "use client";
 
-import { ArrowUp, Sparkles, Wrench } from "lucide-react";
+import { ArrowUp, Sparkles, Square, Wrench } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { CopyButton } from "@/components/copy-button";
+import { Markdown } from "@/components/markdown";
 import { cn } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -26,6 +28,7 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -33,13 +36,16 @@ export default function ChatPage() {
     });
   }
 
-  // 自动调整输入框高度
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
   }, [input]);
+
+  function stop() {
+    abortRef.current?.abort();
+  }
 
   async function send(text: string) {
     text = text.trim();
@@ -57,11 +63,15 @@ export default function ChatPage() {
     setStreaming(true);
     scrollToBottom();
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: payload }),
+        signal: controller.signal,
       });
 
       if (!res.ok || !res.body) {
@@ -112,7 +122,8 @@ export default function ChatPage() {
                   ) {
                     next[i] = {
                       ...next[i],
-                      content: next[i].content + (obj.tool_result!.ok ? " · 完成" : " · 失败"),
+                      content:
+                        next[i].content + (obj.tool_result!.ok ? " · 完成" : " · 失败"),
                     };
                     break;
                   }
@@ -139,9 +150,13 @@ export default function ChatPage() {
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // 用户主动停止不算错误
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setStreaming(false);
+      abortRef.current = null;
       scrollToBottom();
     }
   }
@@ -157,12 +172,10 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 顶栏 */}
       <header className="flex h-14 items-center border-b border-border px-6">
         <h1 className="text-sm font-medium">聊天</h1>
       </header>
 
-      {/* 消息区 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-6">
           {empty ? (
@@ -196,24 +209,22 @@ export default function ChatPage() {
                       {m.content}
                     </span>
                   </div>
-                ) : (
-                  <div
-                    key={i}
-                    className={cn(
-                      "flex animate-fade-in",
-                      m.role === "user" ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                        m.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "border border-border bg-card text-card-foreground"
-                      )}
-                    >
+                ) : m.role === "user" ? (
+                  <div key={i} className="flex animate-fade-in justify-end">
+                    <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
                       {m.content}
                     </div>
+                  </div>
+                ) : (
+                  <div key={i} className="group flex animate-fade-in flex-col items-start">
+                    <div className="max-w-[85%] break-words rounded-2xl border border-border bg-card px-4 py-1 text-card-foreground">
+                      <Markdown content={m.content} />
+                    </div>
+                    {m.content && (
+                      <div className="mt-1 pl-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <CopyButton text={m.content} label="复制" />
+                      </div>
+                    )}
                   </div>
                 )
               )}
@@ -236,7 +247,6 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* 输入区 */}
       <div className="border-t border-border px-6 py-4">
         <div className="mx-auto max-w-3xl">
           {error && (
@@ -254,14 +264,24 @@ export default function ChatPage() {
               placeholder="输入消息，Enter 发送，Shift+Enter 换行"
               className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             />
-            <button
-              onClick={() => send(input)}
-              disabled={streaming || !input.trim()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
-              aria-label="发送"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+            {streaming ? (
+              <button
+                onClick={stop}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-foreground transition-colors hover:bg-accent"
+                aria-label="停止生成"
+              >
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={() => send(input)}
+                disabled={!input.trim()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-opacity disabled:opacity-40"
+                aria-label="发送"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <p className="mt-2 text-center text-xs text-muted-foreground">
             由通义千问驱动 · agent 可自主调用 skill

@@ -1,11 +1,11 @@
 "use client";
 
-import { Trash2, Upload } from "lucide-react";
+import { Plus, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -104,7 +104,13 @@ export default function SkillsPage() {
               启用的 skill 会作为工具提供给 agent；对话时由 agent 自主决定是否调用。
             </p>
           </div>
-          <Badge variant="outline">{activeCount} 个已启用</Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline">{activeCount} 个已启用</Badge>
+            <Link href="/skills/new" className={buttonVariants({ size: "sm" })}>
+              <Plus className="h-4 w-4" />
+              新建 skill
+            </Link>
+          </div>
         </div>
 
         {/* 列表 */}

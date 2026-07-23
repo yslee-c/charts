@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.schemas.skill import SkillActive, SkillImport, SkillOut
+from app.schemas.skill import SkillActive, SkillCreate, SkillImport, SkillOut
 from app.services import skill_service as svc
 from app.services.skill_service import SkillNameConflict
 from app.skills.parser import SkillParseError, render_skill_md
@@ -14,6 +14,15 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 @router.get("", response_model=list[SkillOut])
 def list_skills(active_only: bool = False, db: Session = Depends(get_db)):
     return svc.list_skills(db, active_only=active_only)
+
+
+@router.post("", response_model=SkillOut, status_code=201)
+def create_skill(payload: SkillCreate, db: Session = Depends(get_db)):
+    """结构化新建 skill（表单用）。"""
+    try:
+        return svc.create_structured(db, payload.model_dump())
+    except SkillNameConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{skill_id}", response_model=SkillOut)

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Sparkles, Blocks } from "lucide-react";
+import { Activity, Blocks, MessageSquare, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/chat", label: "聊天", icon: MessageSquare },
   { href: "/skills", label: "Skill 管理", icon: Blocks },
+  { href: "/runs", label: "调用记录", icon: Activity },
 ];
 
 export function Sidebar() {

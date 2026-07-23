@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.skill import Skill
+from app.models.skill_run import SkillRun
 from app.skills.builtins import BUILTIN_SKILLS
 from app.skills.parser import SkillParseError, parse_skill_md
 
@@ -48,6 +49,26 @@ def create_from_skill_md(
 
 class SkillNameConflict(ValueError):
     """新名称与另一个已存在的 skill 冲突。"""
+
+
+def create_structured(db: Session, fields: dict) -> Skill:
+    """按结构化字段新建 skill（表单用）；同名冲突抛 SkillNameConflict。"""
+    if get_by_name(db, fields["name"]) is not None:
+        raise SkillNameConflict(f"已存在同名 skill：{fields['name']}")
+    skill = Skill(source="manual", is_active=True, **fields)
+    db.add(skill)
+    db.commit()
+    db.refresh(skill)
+    return skill
+
+
+def list_runs(
+    db: Session, limit: int = 100, skill_id: int | None = None
+) -> list[SkillRun]:
+    stmt = select(SkillRun).order_by(SkillRun.id.desc()).limit(limit)
+    if skill_id is not None:
+        stmt = stmt.where(SkillRun.skill_id == skill_id)
+    return list(db.scalars(stmt))
 
 
 def update_from_skill_md(db: Session, skill_id: int, text: str) -> Skill | None:

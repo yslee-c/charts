@@ -76,10 +76,12 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)) -> StreamingResp
 
     conv_id, conv_title = convo.id, convo.title
 
-    # 落库用户消息，并据此构建给模型的历史
+    # 落库用户消息。构建给模型的历史时只取 user/assistant（排除工具活动）
     conv_svc.add_message(db, conv_id, "user", req.message)
     history: list[ChatMessage] = [
-        {"role": m.role, "content": m.content} for m in conv_svc.messages(db, conv_id)
+        {"role": m.role, "content": m.content}
+        for m in conv_svc.messages(db, conv_id)
+        if m.role in ("user", "assistant")
     ]
 
     async def event_stream() -> AsyncIterator[str]:
@@ -91,6 +93,13 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)) -> StreamingResp
             async for event in run_chat(db, history, DEFAULT_SYSTEM_PROMPT):
                 if "delta" in event:
                     assistant_text += event["delta"]
+                elif "tool_result" in event:
+                    # 持久化工具活动，便于重开历史会话时回看
+                    tr = event["tool_result"]
+                    mark = "完成" if tr.get("ok") else "失败"
+                    conv_svc.add_message(
+                        db, conv_id, "activity", f"调用 skill：{tr['skill']} · {mark}"
+                    )
                 yield _sse(event)
         except Exception as exc:  # noqa: BLE001
             logger.exception("chat stream failed")

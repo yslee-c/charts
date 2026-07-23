@@ -76,10 +76,10 @@ def test_set_active_and_delete(db):
 
 
 def test_seed_builtins_idempotent(db):
-    assert svc.seed_builtins(db) == 4   # wenyanwen, emoji-tldr, ip-geo, futures-trend
+    assert svc.seed_builtins(db) == 5   # + futures-trend, futures-backtest
     assert svc.seed_builtins(db) == 0   # 幂等
     names = {s.name for s in svc.list_skills(db)}
-    assert {"wenyanwen", "emoji-tldr", "ip-geo", "futures-trend"} <= names
+    assert {"wenyanwen", "emoji-tldr", "ip-geo", "futures-trend", "futures-backtest"} <= names
     # ip-geo 默认停用
     ip = svc.get_by_name(db, "ip-geo")
     assert ip.is_active is False and ip.kind == "http"

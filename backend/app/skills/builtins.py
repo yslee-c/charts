@@ -87,12 +87,43 @@ parameters:
 4. 不需要复述原始 JSON 或价格序列。结尾提醒：技术分析仅供参考，非投资建议。
 """
 
+_FUTURES_BACKTEST = """\
+---
+name: futures-backtest
+description: 当用户想回测/检验 123-2B 策略在某期货品种上的历史表现（胜率、盈亏比、收益、最大回撤）时使用。支持中文品种名或代码。
+kind: native
+parameters:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: 期货品种中文名或代码，如 沪锡 / SN0 / 螺纹钢
+    bars:
+      type: integer
+      description: 回测用多少根日K，默认 500（范围 100~1500）
+    entry_conf:
+      type: integer
+      description: 进场的最低置信度阈值，默认 50（0~100）
+  required:
+    - symbol
+---
+
+# 123 / 2B 策略回测
+
+被调用后你会收到一段 **JSON** 结果，`summary` 是要点，`metrics` 含胜率/盈亏比/
+总收益/最大回撤等，`trades` 是最近若干笔交易。请：
+1. 用简洁中文汇报核心指标（交易数、胜率、盈亏比、累计收益、最大回撤）。
+2. 客观说明这是「按次日开盘进出、以摆动点止损」的简化模型，未计滑点与手续费。
+3. 结尾提醒：历史回测不代表未来，仅供参考、非投资建议。
+"""
+
 # (SKILL.md, 默认是否启用)
 BUILTIN_SKILLS: list[tuple[str, bool]] = [
     (_WENYANWEN, True),
     (_EMOJI_TLDR, True),
     (_IP_GEO, False),  # 模板：默认停用，启用前确认外网可达
     (_FUTURES_TREND, True),  # native：期货 123/2B 分析（需服务器装 akshare）
+    (_FUTURES_BACKTEST, True),  # native：123/2B 策略回测
 ]
 
 # 仅文本列表（供简单遍历）

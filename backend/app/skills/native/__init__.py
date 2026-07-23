@@ -8,10 +8,11 @@ handler 签名：`(arguments: dict) -> str`，返回值作为工具结果回灌�
 """
 from collections.abc import Callable
 
-from app.skills.native import futures_trend
+from app.skills.native import futures_backtest, futures_trend
 
 NATIVE_HANDLERS: dict[str, Callable[[dict], str]] = {
     "futures-trend": futures_trend.run,
+    "futures-backtest": futures_backtest.run,
 }
 
 

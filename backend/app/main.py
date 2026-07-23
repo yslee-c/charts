@@ -13,7 +13,10 @@ app = FastAPI(title=settings.app_name)
 
 app.add_middleware(
     CORSMiddleware,
+    # 显式来源 + 本地开发正则（任意 localhost/127.0.0.1 端口，http/https 皆可），
+    # 避免因 127.0.0.1 vs localhost 或端口不同导致的跨域拦截。
     allow_origins=[settings.frontend_origin],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

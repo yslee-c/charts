@@ -46,6 +46,34 @@ def create_from_skill_md(
     return skill
 
 
+class SkillNameConflict(ValueError):
+    """新名称与另一个已存在的 skill 冲突。"""
+
+
+def update_from_skill_md(db: Session, skill_id: int, text: str) -> Skill | None:
+    """按 id 用一段 SKILL.md 更新 skill（版本 +1）。
+
+    - 返回 None 表示 skill 不存在；
+    - 解析失败抛 SkillParseError；
+    - 新名称与其他 skill 冲突抛 SkillNameConflict。
+    """
+    skill = db.get(Skill, skill_id)
+    if skill is None:
+        return None
+
+    fields = parse_skill_md(text)  # 可能抛 SkillParseError
+    other = get_by_name(db, fields["name"])
+    if other is not None and other.id != skill_id:
+        raise SkillNameConflict(f"已存在同名 skill：{fields['name']}")
+
+    for key, value in fields.items():
+        setattr(skill, key, value)
+    skill.version += 1
+    db.commit()
+    db.refresh(skill)
+    return skill
+
+
 def set_active(db: Session, skill_id: int, is_active: bool) -> Skill | None:
     skill = db.get(Skill, skill_id)
     if skill is None:

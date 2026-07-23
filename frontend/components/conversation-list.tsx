@@ -1,7 +1,7 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -25,6 +25,9 @@ export function ConversationList({
   refreshSignal: number;
 }) {
   const [items, setItems] = useState<Conversation[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,12 +44,47 @@ export function ConversationList({
     load();
   }, [load, refreshSignal]);
 
+  useEffect(() => {
+    if (editingId !== null) inputRef.current?.focus();
+  }, [editingId]);
+
   async function remove(e: React.MouseEvent, id: number) {
     e.stopPropagation();
     if (!confirm("删除该会话？")) return;
     await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" });
     if (id === currentId) onNew();
     load();
+  }
+
+  function startEdit(e: React.MouseEvent, c: Conversation) {
+    e.stopPropagation();
+    setEditingId(c.id);
+    setDraft(c.title);
+  }
+
+  async function commitEdit() {
+    const id = editingId;
+    if (id === null) return;
+    const title = draft.trim();
+    setEditingId(null);
+    const current = items.find((x) => x.id === id);
+    if (!title || title === current?.title) return;
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, title } : x)));
+    await fetch(`${API_BASE}/api/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    load();
+  }
+
+  function onEditKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === "Escape") {
+      setEditingId(null);
+    }
   }
 
   return (
@@ -68,29 +106,51 @@ export function ConversationList({
           </p>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {items.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => onSelect(c.id)}
-                className={cn(
-                  "group flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
-                  c.id === currentId
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate">{c.title}</span>
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  onClick={(e) => remove(e, c.id)}
-                  className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                  aria-label="删除会话"
+            {items.map((c) =>
+              editingId === c.id ? (
+                <input
+                  key={c.id}
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={onEditKeyDown}
+                  onBlur={commitEdit}
+                  className="rounded-md border border-input bg-background px-2.5 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              ) : (
+                <button
+                  key={c.id}
+                  onClick={() => onSelect(c.id)}
+                  onDoubleClick={(e) => startEdit(e, c)}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                    c.id === currentId
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                  )}
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </span>
-              </button>
-            ))}
+                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(e) => startEdit(e, c)}
+                    className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                    aria-label="重命名会话"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(e) => remove(e, c.id)}
+                    className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    aria-label="删除会话"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              )
+            )}
           </div>
         )}
       </div>

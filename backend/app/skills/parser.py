@@ -79,3 +79,20 @@ def parse_skill_md(text: str) -> dict:
         "http_action": http_action,
         "skill_md": body,
     }
+
+
+def render_skill_md(skill) -> str:
+    """从 Skill 模型重建 SKILL.md 文本（供编辑器回填）。"""
+    front: dict = {"name": skill.name, "description": skill.description}
+    if skill.kind and skill.kind != "instruction":
+        front["kind"] = skill.kind
+    if skill.parameters_schema:
+        front["parameters"] = skill.parameters_schema
+    if skill.http_action:
+        front["http_action"] = skill.http_action
+
+    frontmatter = yaml.safe_dump(
+        front, allow_unicode=True, sort_keys=False, default_flow_style=False
+    )
+    body = skill.skill_md or ""
+    return f"---\n{frontmatter}---\n\n{body}".rstrip() + "\n"

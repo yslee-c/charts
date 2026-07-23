@@ -1,6 +1,7 @@
 "use client";
 
 import { Trash2, Upload } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -127,9 +128,9 @@ export default function SkillsPage() {
                 onCheckedChange={() => toggle(s)}
                 aria-label={`启用 ${s.name}`}
               />
-              <div className="min-w-0 flex-1">
+              <Link href={`/skills/${s.id}`} className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium">{s.name}</span>
+                  <span className="font-medium hover:underline">{s.name}</span>
                   <Badge variant={s.kind === "http" ? "secondary" : "outline"}>
                     {s.kind}
                   </Badge>
@@ -141,7 +142,7 @@ export default function SkillsPage() {
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">
                   {s.description}
                 </p>
-              </div>
+              </Link>
               <Button
                 variant="ghost"
                 size="icon"

@@ -28,7 +28,11 @@ uvicorn app.main:app --reload --port 8000
 
 | 方法 & 路径 | 说明 |
 | --- | --- |
-| `POST /api/chat` | SSE 流式对话；agent 按需调用已启用 skill（tool calling + 渐进式披露） |
+| `POST /api/chat` | SSE 流式对话（body: `{conversation_id?, message}`）；无 id 则新建会话，服务端加载历史、落库消息、agent 按需调用 skill |
+| `GET /api/conversations` | 会话列表（按更新时间倒序） |
+| `GET /api/conversations/{id}` | 会话详情（含消息） |
+| `PATCH /api/conversations/{id}` | 重命名会话 |
+| `DELETE /api/conversations/{id}` | 删除会话（级联删除消息） |
 | `GET /api/skills?active_only=` | 列出 skill |
 | `POST /api/skills/import` | 导入一段 SKILL.md（Claude Skills 规范），同名则更新并 +1 版本 |
 | `PATCH /api/skills/{id}/active` | 启用 / 停用（即“订阅”开关） |

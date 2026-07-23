@@ -53,6 +53,17 @@ app/
 alembic/           # 数据库迁移
 ```
 
+## 测试
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+测试用临时 SQLite（不碰你的 `charts.db`），用假 LLM 客户端覆盖对话编排，
+无需真实 `DASHSCOPE_API_KEY`。覆盖：SKILL.md 解析/渲染、skill 服务、
+skills/conversations/skill-runs API、聊天持久化与工具活动、tool-calling 编排与审计。
+
 ## 数据库迁移（Alembic）
 
 数据库 URL 由 `app/core/config.py` 的 `DATABASE_URL` 决定（默认 SQLite）。
